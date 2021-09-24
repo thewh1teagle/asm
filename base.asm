@@ -3,7 +3,7 @@ MODEL small
 STACK 100h
 DATASEG
 procRet dw ? ; used in functions to store function stack data
-number dd ?
+number dd 200000000
 CODESEG
 proc printNewLine
     mov dl, 10
@@ -64,31 +64,83 @@ PROC div16Bit
     ret
 ENDP div16Bit
 
-; divide 32 bit number with 16 bit divider
-; params: S1: divisible, S2: divider
-PROC div32Bit
-    pop [procRet]
+PROC idiv32
 
-    pop [number] ; 32 bit variable
-    pop cx ; divider
-    ; 32 bit div
-    mov ax, [word offset number + 2] ; numberL
-    mov dx, [word offset number] ; numberH
-    div cx
-    ; ax > result,  dx > remainder
-    
-    push [procRet]
+;Divides a signed 32-bit value by a signed 16-bit value.
+
+;alters ax
+;alters bx
+;alters dx
+
+;expects the signed 32-bit dividend in dx:ax
+;expects the signed 16-bit divisor in bx
+
+;returns the signed 32-bit quotient in dx:ax
+
+push cx
+push di
+push si
+
+    mov ch, dh      ;ch <- sign of dividend
+    xor ch, bh      ;ch <- resulting sign of dividend/divisor
+
+    test dh, dh     ;Is sign bit of dividend set?  
+    jns chk_divisor ;If not, check the divisors sign.
+    xor di, di      ;If so, negate dividend.  
+    xor si, si      ;clear di and si   
+    sub di, ax      ;subtract low word from 0, cf set if underflow occurs
+    sbb si, dx      ;subtract hi word + cf from 0, di:si <- negated dividend
+    mov ax, di      
+    mov dx, si      ;copy the now negated dividend into dx:ax
+
+chk_divisor:
+    xor di, di
+    sbb di, bx      ;di <- negated divisor by default
+    test bh, bh     ;Is sign bit of divisor set?
+    jns uint_div    ;If not, bx is already unsigned. Begin unsigned division.
+    mov bx, di      ;If so, copy negated divisor into bx.
+
+uint_div:
+    mov di, ax      ;di <- copy of LSW of given dividend
+    mov ax, dx      ;ax <- MSW of given dividend
+    xor dx, dx      ;dx:ax <- 0:MSW  
+    div bx          ;ax:dx <- ax=MSW of final quotient, dx=remainder
+
+    mov si, ax      ;si <- MSW of final quotient
+    mov ax, di      ;dx:ax <- dx=previous remainder, ax=LSW of given dividend
+    div bx          ;ax:dx <- ax=LSW of final quotient, dx=final remainder
+    mov dx, si      ;dx:ax <- final quotient
+
+    test ch, ch     ;Should the quotient be negative?
+    js neg_quot     ;If so, negate the quotient.
+pop si              ;If not, return. 
+pop di
+pop cx
     ret
-ENDP div32Bit
+
+neg_quot:
+    xor di, di      
+    xor si, si
+    sub di, ax
+    sbb si, dx
+    mov ax, di
+    mov dx, si      ;quotient negated
+pop si
+pop di
+pop cx
+    ret
+
+ENDP idiv32
 
 start:
     mov ax, @data
     mov ds, ax
     ; code here
-
-    push 10
-    push 3
-    call div32Bit
+	mov bx, offset number
+	mov dx, [bx]
+	mov ax, [bx + 2]
+	mov bx, 16
+	call idiv32
 
 exit:
     call printNewLine
